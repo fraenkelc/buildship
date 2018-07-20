@@ -28,6 +28,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Maps;
 
+import org.eclipse.core.resources.IContainer;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -106,23 +108,27 @@ final class GradleClasspathContainerUpdater {
     private List<IClasspathEntry> collectExternalDependencies() {
         Builder<IClasspathEntry> result = ImmutableList.builder();
         for (EclipseExternalDependency dependency : this.gradleProject.getClasspath()) {
-            File dependencyFile = dependency.getFile();
-            boolean linkedResourceCreated = tryCreatingLinkedResource(dependencyFile, result);
-            if (!linkedResourceCreated) {
-                String dependencyName = dependencyFile.getName();
-                // Eclipse only accepts folders and archives as external dependencies (but not, for
-                // example, a DLL)
-                if (dependencyFile.isDirectory() || dependencyName.endsWith(".jar") || dependencyName.endsWith(".zip")) {
-                    IPath path = org.eclipse.core.runtime.Path.fromOSString(dependencyFile.getAbsolutePath());
-                    File dependencySource = dependency.getSource();
-                    IPath sourcePath = dependencySource != null ? org.eclipse.core.runtime.Path.fromOSString(dependencySource.getAbsolutePath()) : null;
-                    IClasspathEntry entry = JavaCore.newLibraryEntry(path, sourcePath, null, ClasspathUtils.createAccessRules(dependency), ClasspathUtils
-                            .createClasspathAttributes(dependency), dependency.isExported());
-                    result.add(entry);
-                }
-            }
+            createExternalDependency(result, dependency);
         }
         return result.build();
+    }
+
+    private void createExternalDependency(Builder<IClasspathEntry> result, EclipseExternalDependency dependency) {
+        File dependencyFile = dependency.getFile();
+        boolean linkedResourceCreated = tryCreatingLinkedResource(dependencyFile, result);
+        if (!linkedResourceCreated) {
+            String dependencyName = dependencyFile.getName();
+            // Eclipse only accepts folders and archives as external dependencies (but not, for
+            // example, a DLL)
+            if (dependencyFile.isDirectory() || dependencyName.endsWith(".jar") || dependencyName.endsWith(".zip")) {
+                IPath path = org.eclipse.core.runtime.Path.fromOSString(dependencyFile.getAbsolutePath());
+                File dependencySource = dependency.getSource();
+                IPath sourcePath = dependencySource != null ? org.eclipse.core.runtime.Path.fromOSString(dependencySource.getAbsolutePath()) : null;
+                IClasspathEntry entry = JavaCore.newLibraryEntry(path, sourcePath, null, ClasspathUtils.createAccessRules(dependency), ClasspathUtils
+                        .createClasspathAttributes(dependency), dependency.isExported());
+                result.add(entry);
+            }
+        }
     }
 
     private boolean tryCreatingLinkedResource(File dependencyFile, Builder<IClasspathEntry> result) {
@@ -142,9 +148,18 @@ final class GradleClasspathContainerUpdater {
         Builder<IClasspathEntry> result = ImmutableList.builder();
         for (EclipseProjectDependency dependency : this.gradleProject.getProjectDependencies()) {
             IPath path = new Path("/" + dependency.getPath());
-            IClasspathEntry entry = JavaCore
-                    .newProjectEntry(path, ClasspathUtils.createAccessRules(dependency), true, ClasspathUtils.createClasspathAttributes(dependency), dependency.isExported());
-            result.add(entry);
+            IProject containerForLocation = this.eclipseProject.getProject().getWorkspace().getRoot().getProject(dependency.getPath());
+            boolean projectOpen = true;
+            if (containerForLocation != null) {
+                projectOpen = containerForLocation.isOpen();
+            }
+            if (projectOpen) {
+                IClasspathEntry entry = JavaCore
+                        .newProjectEntry(path, ClasspathUtils.createAccessRules(dependency), true, ClasspathUtils.createClasspathAttributes(dependency), dependency.isExported());
+                result.add(entry);
+            } else {
+                createExternalDependency(result, dependency.getSubstitute());
+            }
         }
         return result.build();
     }

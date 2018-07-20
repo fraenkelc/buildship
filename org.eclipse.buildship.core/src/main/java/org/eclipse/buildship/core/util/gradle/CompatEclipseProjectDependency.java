@@ -8,7 +8,9 @@
 
 package org.eclipse.buildship.core.util.gradle;
 
+import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.eclipse.EclipseProjectDependency;
+import org.gradle.tooling.model.eclipse.EclipseProjectSubstitute;
 import org.gradle.tooling.model.eclipse.HierarchicalEclipseProject;
 
 /**
@@ -42,4 +44,10 @@ class CompatEclipseProjectDependency extends CompatEclipseClasspathEntry<Eclipse
             return true;
         }
     }
+
+    @Override
+    public EclipseProjectSubstitute getSubstitute() throws UnsupportedMethodException {
+        return getElement().getSubstitute();
+    }
+
 }
