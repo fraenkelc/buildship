@@ -13,13 +13,20 @@
 package org.eclipse.buildship.core.workspace.internal;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.gradle.tooling.BuildLauncher;
+import org.gradle.tooling.CancellationTokenSource;
+import org.gradle.tooling.model.GradleTask;
+import org.gradle.tooling.model.Task;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 import org.gradle.tooling.model.eclipse.EclipseProjectDependency;
+import org.gradle.tooling.model.eclipse.EclipseProjectSubstitute;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -41,6 +48,9 @@ import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 
 import org.eclipse.buildship.core.CorePlugin;
+import org.eclipse.buildship.core.configuration.BuildConfiguration;
+import org.eclipse.buildship.core.configuration.RunConfiguration;
+import org.eclipse.buildship.core.gradle.GradleProgressAttributes;
 import org.eclipse.buildship.core.preferences.PersistentModel;
 import org.eclipse.buildship.core.util.classpath.ClasspathUtils;
 import org.eclipse.buildship.core.workspace.GradleClasspathContainer;
@@ -65,6 +75,7 @@ final class GradleClasspathContainerUpdater {
     private final IJavaProject eclipseProject;
     private final EclipseProject gradleProject;
     private final Map<File, EclipseProject> projectDirToProject;
+    private final List<GradleTask> tasksToExecute = new ArrayList<>();
 
     private GradleClasspathContainerUpdater(IJavaProject eclipseProject, EclipseProject gradleProject, Set<EclipseProject> allGradleProjects) {
         this.eclipseProject = Preconditions.checkNotNull(eclipseProject);
@@ -159,6 +170,7 @@ final class GradleClasspathContainerUpdater {
                 result.add(entry);
             } else {
                 createExternalDependency(result, dependency.getSubstitute());
+                this.tasksToExecute.add(dependency.getSubstitute().getBuildTask());
             }
         }
         return result.build();
@@ -168,12 +180,26 @@ final class GradleClasspathContainerUpdater {
      * Updates the classpath container of the target project based on the given Gradle model. The
      * container will be persisted so it does not have to be reloaded after the workbench is
      * restarted.
+     * @param tokenSource
+     * @param buildConfig
      */
     public static void updateFromModel(IJavaProject eclipseProject, EclipseProject gradleProject, Set<EclipseProject> allGradleProjects, PersistentModelBuilder persistentModel,
-            IProgressMonitor monitor) throws JavaModelException {
+            IProgressMonitor monitor, CancellationTokenSource tokenSource, BuildConfiguration buildConfig) throws JavaModelException {
         GradleClasspathContainerUpdater updater = new GradleClasspathContainerUpdater(eclipseProject, gradleProject, allGradleProjects);
         updater.updateClasspathContainer(persistentModel, monitor);
+        runTasks(updater.tasksToExecute, monitor, tokenSource, buildConfig);
     }
+
+    private static void runTasks(final List<? extends Task> tasksToRun, IProgressMonitor monitor, CancellationTokenSource tokenSource, BuildConfiguration buildConfig) {
+        RunConfiguration runConfiguration = CorePlugin.configurationManager().createDefaultRunConfiguration(buildConfig);
+        GradleProgressAttributes progressAttributes = GradleProgressAttributes.builder(tokenSource, monitor)
+                .forBackgroundProcess()
+                .withFilteredProgress()
+                .build();
+        BuildLauncher launcher = CorePlugin.gradleWorkspaceManager().getGradleBuild(buildConfig).newBuildLauncher(runConfiguration, progressAttributes);
+        launcher.forTasks(tasksToRun.toArray(new Task[tasksToRun.size()])).run();
+    }
+
 
     /**
      * Updates the classpath container from the state stored by the last call to

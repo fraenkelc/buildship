@@ -16,6 +16,7 @@ import java.io.File;
 import java.util.List;
 import java.util.Set;
 
+import org.gradle.tooling.CancellationTokenSource;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 
 import com.google.common.base.Function;
@@ -101,11 +102,13 @@ final class SynchronizeGradleBuildOperation implements IWorkspaceRunnable {
     private final Set<EclipseProject> allProjects;
     private final BuildConfiguration buildConfig;
     private final NewProjectHandler newProjectHandler;
+    private CancellationTokenSource tokenSource;
 
-    SynchronizeGradleBuildOperation(Set<EclipseProject> allProjects, BuildConfiguration buildConfig, NewProjectHandler newProjectHandler) {
+    SynchronizeGradleBuildOperation(Set<EclipseProject> allProjects, BuildConfiguration buildConfig, NewProjectHandler newProjectHandler, CancellationTokenSource tokenSource) {
         this.allProjects = allProjects;
         this.buildConfig = buildConfig;
         this.newProjectHandler = newProjectHandler;
+        this.tokenSource = tokenSource;
     }
 
     @Override
@@ -246,7 +249,7 @@ final class SynchronizeGradleBuildOperation implements IWorkspaceRunnable {
         LibraryFilter.update(javaProject, project, progress.newChild(1));
         ClasspathContainerUpdater.update(javaProject, project, progress.newChild(1));
         JavaSourceSettingsUpdater.update(javaProject, project, progress.newChild(1));
-        GradleClasspathContainerUpdater.updateFromModel(javaProject, project, SynchronizeGradleBuildOperation.this.allProjects, persistentModel, progress.newChild(1));
+        GradleClasspathContainerUpdater.updateFromModel(javaProject, project, SynchronizeGradleBuildOperation.this.allProjects, persistentModel, progress.newChild(1), this.tokenSource, this.buildConfig);
         WtpClasspathUpdater.update(javaProject, project, progress.newChild(1));
         CorePlugin.externalLaunchConfigurationManager().updateClasspathProviders(workspaceProject);
     }
